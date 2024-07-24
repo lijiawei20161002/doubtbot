@@ -76,8 +76,8 @@ def transform_to_question_answer_pair(data: List[DatasetItem]) -> List[QuestionA
     ]
 
 def load_data() -> tuple[List[DatasetItem], List[DatasetItem]]:
-    train_data_raw = load_from_json("data/train_data.json")
-    test_data_raw = load_from_json("data/test_data.json")
+    train_data_raw = load_from_json("/data/jiawei_li/doubtbot/data/train_data.json")
+    test_data_raw = load_from_json("/data/jiawei_li/doubtbot/data/test_data.json")
     train_data = transform_to_dataset_item(train_data_raw)
     test_data = transform_to_dataset_item(test_data_raw)
     return train_data, test_data

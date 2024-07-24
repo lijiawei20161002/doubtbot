@@ -10,16 +10,15 @@ load_dotenv()
 HF_TOKEN = os.getenv("HF_TOKEN")
 MAX_LENGTH = 1024
 
-
 # Wrapper for both debaters and judges
 class ModelWrapper:
-    def __init__(self, model_id: str, model_name):
+    def __init__(self, model_id: str, model_name: str):
         """
         Initializes the LLM debater with the specified model.
 
         Args:
             model_id (str): A short identifier for the model ("llama2_7b")
-            model_name (str): The name of the model to load from HF/API
+            model_name (str): The name of the model to load from local directory
         """
         self.model_id = model_id
         self.model_name = model_name
@@ -39,8 +38,7 @@ class ModelWrapper:
     ) -> str:
         raise NotImplementedError
 
-
-class HuggingFaceWrapper(ModelWrapper):
+class LocalModelWrapper(ModelWrapper):
     JUDGE_PROMPT_WITHOUT_CRITIQUE = """Here's a math question: {question}
 
 Here's a proposed solution: {answer_numeric}
@@ -68,15 +66,14 @@ Invalid Proof: {answer_proof}
 
 Write an effective critique of the answer, identifying relevant mistakes or omissions in the proof. It's essential that we clearly show the wrongness of the answer."""
 
-    def __init__(self, model_id: str, model_name: str):
-        super().__init__(model_id, model_name)
+    def __init__(self, model_id: str, model_path: str):
+        super().__init__(model_id, model_path)
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_name,
+            model_path,
             device_map="auto",
-            token=HF_TOKEN,
             # torch_dtype=torch.bfloat16
         )
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
 
     def _format_critic_prompt(self, unformatted_prompt: str):
         raise NotImplementedError
@@ -132,14 +129,13 @@ Write an effective critique of the answer, identifying relevant mistakes or omis
         input_ids = self.tokenizer.encode(full_prompt, return_tensors="pt").to(
             self.model.device
         )
-        output = self.model.generate(input_ids, max_length=MAX_LENGTH)
+        output = self.model.generate(input_ids, max_length=MAX_LENGTH, pad_token_id=self.tokenizer.eos_token_id)
         decoded = self.tokenizer.decode(output[0], skip_special_tokens=True)
         response = self._extract_critique_from_response(decoded)
         return response
 
-
-class WizardMathWrapper(HuggingFaceWrapper):
-    def _format_critique_prompt(self, unformatted_prompt: str):
+class WizardMathWrapper(LocalModelWrapper):
+    def _format_critic_prompt(self, unformatted_prompt: str):
         """
         This comes from Huggingface
         https://huggingface.co/WizardLM/WizardMath-70B-V1.0
@@ -152,9 +148,7 @@ class WizardMathWrapper(HuggingFaceWrapper):
     def _extract_critique_from_response(self, response: str) -> str:
         return response.split("Response:")[1].strip()
 
-
-# meta-llama/Llama-2-7b-chat-hf, etc
-class Llama2Wrapper(HuggingFaceWrapper):
+class Llama2Wrapper(LocalModelWrapper):
     CRITIC_WORDS_IN_MOUTH = "Sure, here's my critique:\n\n"
     CRITIC_SYSTEM_PROMPT = "You're a math expert who critiques math problems."
     JUDGE_SYSTEM_PROMPT = "You're a judge who evaluates math problems."
@@ -174,37 +168,33 @@ class Llama2Wrapper(HuggingFaceWrapper):
     def _extract_critique_from_response(self, response: str) -> str:
         return response.split("critique:\n\n")[1].strip()
 
-
-# meta-llama/Meta-Llama-3-8B-Instruct, etc
-class Llama3Wrapper(HuggingFaceWrapper):
+class Llama3Wrapper(LocalModelWrapper):
     CRITIC_WORDS_IN_MOUTH = "Sure, here's my critique:\n\n"
     CRITIC_SYSTEM_PROMPT = "You're a math expert who critiques math problems."
     JUDGE_SYSTEM_PROMPT = "You're a judge who evaluates math problems."
 
     def _format_critic_prompt(self, unformatted_prompt: str):
-        return f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+        return f"""system
 
-{self.CRITIC_SYSTEM_PROMPT}<|eot_id|><|start_header_id|>user<|end_header_id|>
+{self.CRITIC_SYSTEM_PROMPT}user
 
-{unformatted_prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+{unformatted_prompt}assistant
 
 {self.CRITIC_WORDS_IN_MOUTH}"""
 
     def _format_judge_prompt(self, unformatted_prompt: str):
-        return f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+        return f"""system
 
-{self.JUDGE_SYSTEM_PROMPT}<|eot_id|><|start_header_id|>user<|end_header_id|>
+{self.JUDGE_SYSTEM_PROMPT}user
 
-{unformatted_prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+{unformatted_prompt}assistant
 
 ("""
 
     def _extract_critique_from_response(self, response: str) -> str:
         return response.split("critique:\n\n")[1].strip()
 
-
-# google/gemma-2-9b, google/gemma-2-27b
-class Gemma2Wrapper(HuggingFaceWrapper):
+class Gemma2Wrapper(LocalModelWrapper):
     CRITIC_WORDS_IN_MOUTH = "Sure, here's my critique:"
 
     def _format_critic_prompt(self, unformatted_prompt: str):
