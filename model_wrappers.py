@@ -74,6 +74,8 @@ Write an effective critique of the answer, identifying relevant mistakes or omis
             # torch_dtype=torch.bfloat16
         )
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
     def _format_critic_prompt(self, unformatted_prompt: str):
         raise NotImplementedError
